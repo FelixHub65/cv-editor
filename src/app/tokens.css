@@ -1,0 +1,74 @@
+:root {
+  color-scheme: light;
+
+  --color-app-canvas: #eef1f3;
+  --color-app-surface: #ffffff;
+  --color-app-surface-subtle: #f7f8f9;
+  --color-app-surface-hover: #edf2f3;
+  --color-app-border: #d7dee2;
+  --color-app-border-strong: #b8c4ca;
+  --color-app-text: #202a31;
+  --color-app-text-muted: #66747c;
+  --color-app-text-faint: #879198;
+  --color-app-accent: #24685c;
+  --color-app-accent-hover: #195347;
+  --color-app-accent-soft: #e5f0ed;
+  --color-app-focus: #377dba;
+  --color-app-warning: #744c0d;
+  --color-app-warning-soft: #fff0d4;
+  --color-app-danger-soft: #fff3de;
+
+  --color-document-paper: #ffffff;
+  --color-document-text: #202b32;
+  --color-document-muted: #57666d;
+  --color-document-rule: #c5cfd3;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+
+  --shadow-floating: 0 8px 24px rgb(30 43 50 / 12%);
+  --shadow-document: 0 2px 8px rgb(20 28 36 / 8%), 0 24px 60px rgb(20 28 36 / 13%);
+
+  --workspace-left-width: 260px;
+  --workspace-right-width: 320px;
+  --workspace-collapsed-width: 44px;
+  --workspace-header-height: 44px;
+  --document-a4-width: 794px;
+  --document-a4-height: 1123px;
+
+  --duration-fast: 140ms;
+  --duration-normal: 220ms;
+}
+
+/* The application chrome can adopt this theme later. Document colors remain
+   independent so the CV continues to preview its exported appearance. */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --color-app-canvas: #171b1e;
+  --color-app-surface: #202529;
+  --color-app-surface-subtle: #262c30;
+  --color-app-surface-hover: #30373c;
+  --color-app-border: #394148;
+  --color-app-border-strong: #515c64;
+  --color-app-text: #edf1f3;
+  --color-app-text-muted: #a8b2b8;
+  --color-app-text-faint: #7f8a91;
+  --color-app-accent: #66b4a3;
+  --color-app-accent-hover: #7bc7b7;
+  --color-app-accent-soft: #253f39;
+  --color-app-focus: #79afe0;
+  --shadow-floating: 0 10px 30px rgb(0 0 0 / 30%);
+  --shadow-document: 0 2px 8px rgb(0 0 0 / 25%), 0 24px 64px rgb(0 0 0 / 40%);
+}
