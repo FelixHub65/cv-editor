@@ -1,4 +1,5 @@
 import {
+  $createNodeSelection, $setSelection, $getNearestNodeFromDOMNode, CLICK_COMMAND, KEY_ENTER_COMMAND,
   $createLineBreakNode, $createParagraphNode, $createTextNode, $getRoot, $getState, $isElementNode, $isLineBreakNode,
   $isTextNode, $setState, createState, ParagraphNode, RootNode, type LexicalEditor, type ElementNode,
   $getSelection, $isNodeSelection, $isRangeSelection, $isParagraphNode,
@@ -14,15 +15,15 @@ import { createFixture } from "@/domain/fixture";
 import { isDocumentAppearance, type DocumentAppearance, type FontFamily } from "@/domain/cv";
 import { $createLinkNode, $isLinkNode, LinkNode } from "@lexical/link";
 import {
-  layoutState, blockIdState, appearanceState, columnsAppearanceState, regionAppearanceState,
+  spacingState, dividerAppearanceState, layoutState, blockIdState, appearanceState, columnsAppearanceState, regionAppearanceState,
   CvBulletNode, CvParagraphNode, CvHeadingNode, CvListNode, CvSectionNode, CvEntryNode,
-  CvHeaderNode, CvColumnsNode, CvColumnNode,
+  CvHeaderNode, CvColumnsNode, CvColumnNode, CvDividerNode,
 } from "./nodes";
 
 export const documentAppearanceState = createState("documentAppearance", { parse: (value): DocumentAppearance => isDocumentAppearance(value) ? value : {} });
 
 export const proposalState = createState("proposal", { parse: (value): Proposal => isProposal(value) ? value : createFixture().proposal });
-export const editorNodes = [LinkNode, ListNode, ListItemNode, HeadingNode, CvBulletNode, CvParagraphNode, CvHeadingNode, CvListNode, CvSectionNode, CvEntryNode, CvHeaderNode, CvColumnsNode, CvColumnNode,
+export const editorNodes = [CvDividerNode, LinkNode, ListNode, ListItemNode, HeadingNode, CvBulletNode, CvParagraphNode, CvHeadingNode, CvListNode, CvSectionNode, CvEntryNode, CvHeaderNode, CvColumnsNode, CvColumnNode,
   { replace: ParagraphNode, with: () => new CvParagraphNode(), withKlass: CvParagraphNode },
   { replace: ListItemNode, with: () => new CvBulletNode(), withKlass: CvBulletNode },
   { replace: HeadingNode, with: (node: HeadingNode) => new CvHeadingNode(node.getTag()), withKlass: CvHeadingNode },
@@ -45,11 +46,13 @@ export function $writeSpans(node: ElementNode, spans: Span[]) {
   }
 }
 function $loadElement(element: DocumentElement): ElementNode {
-  const node = element.type === "header" ? new CvHeaderNode() : element.type === "columns" ? new CvColumnsNode() : element.type === "column" ? new CvColumnNode() :
+  const node = element.type === "divider" ? new CvDividerNode() : element.type === "header" ? new CvHeaderNode() : element.type === "columns" ? new CvColumnsNode() : element.type === "column" ? new CvColumnNode() :
     element.type === "section" ? new CvSectionNode() : element.type === "entry" ? new CvEntryNode() :
     element.type === "list" ? $createListNode(element.listType ?? "bullet", element.listStart ?? 1) : element.type === "heading" ? $createHeadingNode(`h${element.level}`) :
     element.type === "bullet" ? $createListItemNode() : $createParagraphNode();
   $setState(node, blockIdState, element.id);
+  $setState(node, spacingState, element.spacing ?? {});
+  if (element.type === "divider") $setState(node, dividerAppearanceState, element.appearance ?? {});
   if ("children" in element) {
     node.append(...element.children.map($loadElement));
     if (element.type === "header" || element.type === "column") $setState(node, regionAppearanceState, element.appearance ?? {});
@@ -57,7 +60,7 @@ function $loadElement(element: DocumentElement): ElementNode {
     if (element.type === "column") $setState(node, layoutState, { label: element.label });
     if (element.type === "columns") $setState(node, columnsAppearanceState, element.appearance ?? {});
   }
-  else {
+  else if ("spans" in element) {
     $writeSpans(node, element.spans);
     $setState(node, appearanceState, element.appearance ?? {});
     node.setFormat(element.appearance?.alignment ?? "");
@@ -102,12 +105,19 @@ function $readBlock(node: ElementNode): Block {
   const alignment = node.getFormatType();
   delete appearance.alignment;
   if (["left", "center", "right", "justify"].includes(alignment)) appearance.alignment = alignment as "left" | "center" | "right" | "justify";
-  const base = { id, spans, ...(Object.keys(appearance).length && { appearance }) };
+  const spacing = $getState(node, spacingState);
+  const base = { id, spans, ...(Object.keys(spacing).length && { spacing }), ...(Object.keys(appearance).length && { appearance }) };
   if ($isHeadingNode(node)) return { ...base, type: "heading", level: Number(node.getTag().slice(1)) as 1 | 2 | 3 };
   return { ...base, type: $isListItemNode(node) ? "bullet" : "paragraph" };
 }
 export function $readBlocks(): Block[] { return $blockNodes().map($readBlock); }
 function $readElement(node: ElementNode): DocumentElement {
+  const spacing = $getState(node, spacingState);
+  const spacingData = Object.keys(spacing).length ? { spacing } : {};
+  if (node instanceof CvDividerNode) {
+    const appearance = $getState(node, dividerAppearanceState);
+    return { id: $getState(node, blockIdState), type: "divider", ...spacingData, ...(Object.keys(appearance).length && { appearance }) };
+  }
   if (node instanceof CvHeaderNode || node instanceof CvColumnsNode || node instanceof CvColumnNode || node instanceof CvSectionNode || node instanceof CvEntryNode || $isListNode(node)) {
     const type = node instanceof CvHeaderNode ? "header" : node instanceof CvColumnsNode ? "columns" : node instanceof CvColumnNode ? "column" :
       node instanceof CvSectionNode ? "section" : node instanceof CvEntryNode ? "entry" : "list";
@@ -116,6 +126,7 @@ function $readElement(node: ElementNode): DocumentElement {
     return {
       id: $getState(node, blockIdState),
       type,
+      ...spacingData,
       ...((node instanceof CvColumnsNode || node instanceof CvColumnNode) && $getState(node, layoutState)),
       ...($isListNode(node) && node.getListType() === "number" && { listType: "number" as const }),
       ...($isListNode(node) && node.getListType() === "number" && node.getStart() !== 1 && { listStart: node.getStart() }),
@@ -319,7 +330,7 @@ function isFixedGroupHeading(node: ElementNode) {
 function canAcceptOutlineChild(parent: ElementNode | RootNode, child: ElementNode) {
   if ($isListItemNode(child)) return $isListNode(parent);
   if ($isListNode(parent)) return false;
-  if ($isParagraphNode(child) || $isHeadingNode(child) || $isListNode(child)) {
+  if (child instanceof CvDividerNode || $isParagraphNode(child) || $isHeadingNode(child) || $isListNode(child)) {
     return (parent instanceof RootNode && !parent.getChildren().some((node) => node instanceof CvColumnsNode)) || parent instanceof CvHeaderNode || parent instanceof CvColumnNode || parent instanceof CvSectionNode || parent instanceof CvEntryNode;
   }
   if (child instanceof CvSectionNode) {
@@ -445,6 +456,7 @@ export function $insertBulletList(listType: "bullet" | "number" = "bullet") {
     const focus = selection.focus.key === block.getKey() ? selection.focus.offset : null;
     const item = $createListItemNode();
     $setState(item, blockIdState, $getState(block, blockIdState));
+    $setState(item, spacingState, $getState(block, spacingState));
     $setState(item, appearanceState, $getState(block, appearanceState));
     item.setFormat(block.getFormatType());
     item.append(...block.getChildren());
@@ -459,9 +471,85 @@ export function $insertBulletList(listType: "bullet" | "number" = "bullet") {
       if (first) first.insertBefore(item); else next.append(item);
       block.remove();
     } else {
-      block.replace($createListNode(listType).append(item));
+      const list = $createListNode(listType).append(item);
+      $setState(list, spacingState, $getState(block, spacingState));
+      block.replace(list);
     }
     if (anchor !== null) selection.anchor.set(item.getKey(), Math.min(anchor, item.getChildrenSize()), "element");
     if (focus !== null) selection.focus.set(item.getKey(), Math.min(focus, item.getChildrenSize()), "element");
   }
+}
+
+export function $addDivider() {
+  const selection = $getSelection();
+  const selected = $isRangeSelection(selection) ? selection.anchor.getNode() : $isNodeSelection(selection) ? selection.getNodes()[0] : null;
+  let anchor = selected && $isElementNode(selected) ? selected : selected?.getParent();
+  const divider = new CvDividerNode();
+  while (anchor && anchor.getParent() && !canAcceptOutlineChild(anchor.getParent()!, divider)) anchor = anchor.getParent();
+  if (anchor && !(anchor instanceof RootNode) && anchor.getParent()) anchor.insertAfter(divider);
+  else {
+    const columns = $directColumns($getRoot());
+    (columns ? $primaryColumn(columns) : $getRoot()).append(divider);
+  }
+  const next = $createNodeSelection();
+  next.add(divider.getKey());
+  $setSelection(next);
+}
+
+export function registerDividers(editor: LexicalEditor) {
+  // Prevent the browser from placing a text caret around a non-editable line.
+  function pointerDown(event: PointerEvent) {
+    const target = event.target;
+    if (!(target instanceof HTMLElement) || !target.closest(".cv-divider")) return;
+    event.preventDefault();
+    target.setPointerCapture(event.pointerId);
+    editor.getRootElement()?.focus({ preventScroll: true });
+    editor.update(() => {
+      const node = $getNearestNodeFromDOMNode(target);
+      if (!(node instanceof CvDividerNode)) return;
+      const selection = $createNodeSelection();
+      selection.add(node.getKey());
+      $setSelection(selection);
+    });
+  }
+
+  function selectedDivider() {
+    const selection = $getSelection();
+    const node = $isNodeSelection(selection) && selection.getNodes().length === 1 ? selection.getNodes()[0] : null;
+    return node instanceof CvDividerNode ? node : null;
+  }
+  function remove(event: KeyboardEvent | null) {
+    const node = selectedDivider();
+    if (!node) return false;
+    event?.preventDefault();
+    node.selectPrevious();
+    node.remove();
+    return true;
+  }
+  return mergeRegister(
+    editor.registerRootListener((root, previous) => {
+      previous?.removeEventListener("pointerdown", pointerDown);
+      root?.addEventListener("pointerdown", pointerDown);
+    }),
+    editor.registerCommand(CLICK_COMMAND, (event) => {
+      if (!(event.target instanceof HTMLElement)) return false;
+      const node = $getNearestNodeFromDOMNode(event.target);
+      if (!(node instanceof CvDividerNode)) return false;
+      const selection = $createNodeSelection();
+      selection.add(node.getKey());
+      $setSelection(selection);
+      return true;
+    }, COMMAND_PRIORITY_HIGH),
+    editor.registerCommand(KEY_BACKSPACE_COMMAND, remove, COMMAND_PRIORITY_HIGH),
+    editor.registerCommand(KEY_DELETE_COMMAND, remove, COMMAND_PRIORITY_HIGH),
+    editor.registerCommand(KEY_ENTER_COMMAND, (event) => {
+      const node = selectedDivider();
+      if (!node) return false;
+      event?.preventDefault();
+      const paragraph = $createParagraphNode();
+      node.insertAfter(paragraph);
+      paragraph.selectStart();
+      return true;
+    }, COMMAND_PRIORITY_HIGH),
+  );
 }

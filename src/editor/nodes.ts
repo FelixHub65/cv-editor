@@ -2,7 +2,7 @@ import { $getState, createState, ParagraphNode, ElementNode, type EditorConfig }
 import { HeadingNode } from "@lexical/rich-text";
 import { ListNode, ListItemNode } from "@lexical/list";
 import {
-  regionPadding, isBlockAppearance, isColumnsAppearance, isRegionAppearance,
+  isElementSpacing, type ElementSpacing, regionPadding, isDividerAppearance, type DividerAppearance, isBlockAppearance, isColumnsAppearance, isRegionAppearance,
   type BlockAppearance, type ColumnsAppearance, type RegionAppearance,
 } from "@/domain/cv";
 
@@ -10,8 +10,23 @@ export const appearanceState = createState("appearance", { parse: (value): Block
 function renderAppearance(node: ElementNode, dom: HTMLElement) {
   const value = $getState(node, appearanceState);
   dom.style.lineHeight = value.lineHeight ? String(value.lineHeight) : "";
-  dom.style.marginBottom = value.spaceAfter !== undefined ? `${value.spaceAfter}px` : "";
+
   dom.dataset.textStyle = value.textStyle ?? "";
+}
+
+
+export const spacingState = createState("spacing", { parse: (value): ElementSpacing => isElementSpacing(value) ? value : {} });
+function renderSpacing(node: ElementNode, dom: HTMLElement) {
+  const spacing = $getState(node, spacingState);
+  const previous = node.getPreviousSibling();
+  const parent = node.getParent();
+  const listGap = parent instanceof ListNode ? $getState(parent, spacingState).itemGap : undefined;
+  const legacy = listGap !== undefined ? undefined : previous ? $getState(previous, appearanceState).spaceAfter : undefined;
+  const type = node.getType();
+  const previousTag = previous instanceof HeadingNode ? previous.getTag() : "";
+  const fallback = type === "cv-section" ? "var(--cv-section-spacing, 30px)" : type === "cv-entry" && previous?.getType() === type ? "22px" : type === "cv-bullet" ? "var(--cv-item-gap, 9px)" : previousTag === "h2" ? "15px" : previousTag ? "8px" : "10px";
+  dom.style.setProperty("--cv-gap", !previous || node.getParent() instanceof CvColumnsNode ? "0px" : spacing.before !== undefined ? `${spacing.before}px` : legacy !== undefined ? `${legacy}px` : fallback);
+  if (node instanceof ListNode) dom.style.setProperty("--cv-item-gap", `${spacing.itemGap ?? 9}px`);
 }
 
 export const blockIdState = createState("blockId", {
@@ -52,10 +67,12 @@ export class CvParagraphNode extends ParagraphNode {
   createDOM(config: EditorConfig) {
     const dom = super.createDOM(config);
     renderAppearance(this, dom);
+    renderSpacing(this, dom);
     dom.dataset.blockId = $getState(this, blockIdState);
     return dom;
   }
   updateDOM(prev: this, dom: HTMLElement, config: EditorConfig) {
+    renderSpacing(this, dom);
     dom.dataset.blockId = $getState(this, blockIdState);
     const result = super.updateDOM(prev, dom, config);
     renderAppearance(this, dom);
@@ -67,10 +84,12 @@ export class CvBulletNode extends ListItemNode {
   createDOM(config: EditorConfig) {
     const dom = super.createDOM(config);
     renderAppearance(this, dom);
+    renderSpacing(this, dom);
     dom.dataset.blockId = $getState(this, blockIdState);
     return dom;
   }
   updateDOM(prev: this, dom: HTMLElement, config: EditorConfig) {
+    renderSpacing(this, dom);
     dom.dataset.blockId = $getState(this, blockIdState);
     const result = super.updateDOM(prev, dom, config);
     renderAppearance(this, dom);
@@ -84,10 +103,12 @@ export class CvHeadingNode extends HeadingNode {
   createDOM(config: EditorConfig) {
     const dom = super.createDOM(config);
     renderAppearance(this, dom);
+    renderSpacing(this, dom);
     dom.dataset.blockId = $getState(this, blockIdState);
     return dom;
   }
   updateDOM(prev: this, dom: HTMLElement, config: EditorConfig) {
+    renderSpacing(this, dom);
     dom.dataset.blockId = $getState(this, blockIdState);
     const result = super.updateDOM(prev, dom, config);
     renderAppearance(this, dom);
@@ -98,10 +119,12 @@ export class CvListNode extends ListNode {
   $config() { return this.config("cv-list", { extends: ListNode }); }
   createDOM(config: EditorConfig) {
     const dom = super.createDOM(config);
+    renderSpacing(this, dom);
     dom.dataset.blockId = $getState(this, blockIdState);
     return dom;
   }
   updateDOM(prev: this, dom: HTMLElement, config: EditorConfig) {
+    renderSpacing(this, dom);
     dom.dataset.blockId = $getState(this, blockIdState);
     return super.updateDOM(prev, dom, config);
   }
@@ -111,10 +134,12 @@ export class CvSectionNode extends ElementNode {
   createDOM() {
     const dom = document.createElement("section");
     dom.className = "cv-section";
+    renderSpacing(this, dom);
     dom.dataset.blockId = $getState(this, blockIdState);
     return dom;
   }
   updateDOM(_prev: this, dom: HTMLElement) {
+    renderSpacing(this, dom);
     dom.dataset.blockId = $getState(this, blockIdState);
     return false;
   }
@@ -125,10 +150,12 @@ export class CvEntryNode extends ElementNode {
   createDOM() {
     const dom = document.createElement("div");
     dom.className = "cv-entry";
+    renderSpacing(this, dom);
     dom.dataset.blockId = $getState(this, blockIdState);
     return dom;
   }
   updateDOM(_prev: this, dom: HTMLElement) {
+    renderSpacing(this, dom);
     dom.dataset.blockId = $getState(this, blockIdState);
     return false;
   }
@@ -142,11 +169,13 @@ export class CvHeaderNode extends ElementNode {
   createDOM() {
     const dom = document.createElement("div");
     dom.className = "cv-header";
+    renderSpacing(this, dom);
     dom.dataset.blockId = $getState(this, blockIdState);
     renderRegionAppearance(this, dom);
     return dom;
   }
   updateDOM(_prev: this, dom: HTMLElement) {
+    renderSpacing(this, dom);
     dom.dataset.blockId = $getState(this, blockIdState);
     renderRegionAppearance(this, dom);
     return false;
@@ -159,11 +188,13 @@ export class CvColumnsNode extends ElementNode {
   createDOM() {
     const dom = document.createElement("div");
     dom.className = "cv-columns";
+    renderSpacing(this, dom);
     dom.dataset.blockId = $getState(this, blockIdState);
     renderColumnsAppearance(this, dom);
     return dom;
   }
   updateDOM(_prev: this, dom: HTMLElement) {
+    renderSpacing(this, dom);
     dom.dataset.blockId = $getState(this, blockIdState);
     renderColumnsAppearance(this, dom);
     return false;
@@ -176,14 +207,48 @@ export class CvColumnNode extends ElementNode {
   createDOM() {
     const dom = document.createElement("div");
     dom.className = "cv-column";
+    renderSpacing(this, dom);
     dom.dataset.blockId = $getState(this, blockIdState);
     renderRegionAppearance(this, dom);
     return dom;
   }
   updateDOM(_prev: this, dom: HTMLElement) {
+    renderSpacing(this, dom);
     dom.dataset.blockId = $getState(this, blockIdState);
     renderRegionAppearance(this, dom);
     return false;
   }
   canBeEmpty() { return true; }
+}
+
+export const dividerAppearanceState = createState("dividerAppearance", { parse: (value): DividerAppearance => isDividerAppearance(value) ? value : {} });
+function renderDividerAppearance(node: CvDividerNode, dom: HTMLElement) {
+  const value = $getState(node, dividerAppearanceState);
+  dom.style.setProperty("--cv-divider-color", value.color ?? "#c5cfd3");
+  dom.style.setProperty("--cv-divider-opacity", String((value.opacity ?? 100) / 100));
+  dom.style.setProperty("--cv-divider-thickness", `${value.thickness ?? 1}px`);
+  dom.style.setProperty("--cv-divider-radius", value.ends === "rounded" ? "999px" : "0px");
+}
+
+// Atomic non-text element; kept in the same persistent-ID traversal as groups.
+export class CvDividerNode extends ElementNode {
+  $config() { return this.config("cv-divider", { extends: ElementNode }); }
+  createDOM() {
+    const dom = document.createElement("div");
+    dom.className = "cv-divider";
+    dom.contentEditable = "false";
+    dom.setAttribute("role", "separator");
+    dom.setAttribute("aria-label", "Divider");
+    renderDividerAppearance(this, dom);
+    renderSpacing(this, dom);
+    dom.dataset.blockId = $getState(this, blockIdState);
+    return dom;
+  }
+  updateDOM(_prev: this, dom: HTMLElement) {
+    renderSpacing(this, dom);
+    dom.dataset.blockId = $getState(this, blockIdState);
+    renderDividerAppearance(this, dom);
+    return false;
+  }
+  isKeyboardSelectable() { return true; }
 }

@@ -1,10 +1,11 @@
 import { notFound } from "next/navigation";
 import {
   AlignLeft, ArrowLeft, Bold, Box, CaseUpper, ChevronLeft,
-  ChevronRight, Circle, CircleDot, Dot, FilePlus2, Files, FileText, Heading,
-  Italic, LayoutPanelTop, List, ListIndentIncrease, ListTree, Maximize2, Minus,
-  Pilcrow, Plus, RectangleEllipsis, Redo2, Rows3, Save, ScrollText, Section,
-  SquareText, Type, Undo2, type LucideIcon,
+  ChevronRight, Circle, CircleDot, Columns2, Dot, FilePlus2, Files, FileText,
+  GapHorizontal, GapVertical, Heading, Italic, LayoutPanelTop, List,
+  ListIndentIncrease, ListTree, Maximize2, Minus, Pilcrow, Plus,
+  RectangleEllipsis, Redo2, Rows3, Save, ScrollText, Section, SquareText,
+  Type, Undo2, type LucideIcon,
 } from "lucide-react";
 import { customIconCatalog } from "@/ui/icons/catalog";
 import type { IconProps } from "@/ui/icons/icon-types";
@@ -15,7 +16,10 @@ const lucideCatalog: { name: string; Icon: LucideIcon }[] = [
   { name: "bold", Icon: Bold },
   { name: "chevron-left", Icon: ChevronLeft },
   { name: "chevron-right", Icon: ChevronRight },
+  { name: "columns-2", Icon: Columns2 },
   { name: "file-plus-2", Icon: FilePlus2 },
+  { name: "gap-horizontal", Icon: GapHorizontal },
+  { name: "gap-vertical", Icon: GapVertical },
   { name: "italic", Icon: Italic },
   { name: "list", Icon: List },
   { name: "maximize-2", Icon: Maximize2 },

@@ -1,7 +1,7 @@
 import { $getSelection, $getState, $isElementNode, $isParagraphNode, $isRangeSelection, $setState, $createParagraphNode, type ElementNode } from "lexical";
 import { $isHeadingNode, $createHeadingNode } from "@lexical/rich-text";
 import { $isListItemNode, $isListNode, $createListNode } from "@lexical/list";
-import { appearanceState, blockIdState } from "./nodes";
+import { spacingState, appearanceState, blockIdState } from "./nodes";
 import type { BlockAppearance } from "@/domain/cv";
 
 export function $selectedBlocks(): ElementNode[] {
@@ -26,6 +26,7 @@ export function $setTextStyle(style: string) {
     if ($isListItemNode(block)) continue;
     const next = /^h[123]$/.test(style) ? $createHeadingNode(style as "h1" | "h2" | "h3") : $createParagraphNode();
     $setState(next, blockIdState, $getState(block, blockIdState));
+    $setState(next, spacingState, $getState(block, spacingState));
     $setState(next, appearanceState, { ...$getState(block, appearanceState), textStyle: style === "subtitle" || style === "caption" ? style : undefined });
     next.setFormat(block.getFormatType());
     next.append(...block.getChildren());
@@ -39,11 +40,13 @@ export function $removeSelectedList() {
     if (!$isListItemNode(item) || !$isListNode(list)) continue;
     const paragraph = $createParagraphNode();
     $setState(paragraph, blockIdState, $getState(item, blockIdState));
+    $setState(paragraph, spacingState, { ...$getState(item, spacingState), ...(!item.getPreviousSibling() && $getState(list, spacingState).before !== undefined ? { before: $getState(list, spacingState).before } : {}) });
     $setState(paragraph, appearanceState, $getState(item, appearanceState));
     paragraph.setFormat(item.getFormatType());
     const after = item.getNextSiblings();
     if (after.length) {
       const trailing = $createListNode(list.getListType(), item.getValue() + 1).append(...after);
+      $setState(trailing, spacingState, { ...$getState(list, spacingState), before: $getState(after[0], spacingState).before ?? $getState(list, spacingState).itemGap ?? 9 });
       list.insertAfter(trailing);
     }
     list.insertAfter(paragraph);

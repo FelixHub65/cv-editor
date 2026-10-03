@@ -4,8 +4,8 @@ import { $createTextNode, $getRoot, $getState, $setState, createEditor, HISTORY_
 import { createEmptyHistoryState, registerHistory } from "@lexical/history";
 import { createFixture } from "../../src/domain/fixture";
 import { allElements, linearizeForAts, textBlocks, needsReview, normalizeSpans, parseDraft, plain } from "../../src/domain/cv";
-import { $canMoveOutlineElement, $insertBulletList, $blockNodes, $elementNodes, $isOutlineElementMovable, $loadDraft, $moveOutlineElement, $readDraft, $review, $setColumnsAppearance, $setDocumentColumns, $setDocumentLayout, $setDocumentHeader, $swapColumns, $setRegionAppearance, $setSectionColumns, editorNodes, proposalState, registerBlockIds } from "../../src/editor/adapter";
-import { layoutState, blockIdState, CvColumnNode, CvColumnsNode, CvHeaderNode, CvSectionNode } from "../../src/editor/nodes";
+import { $addDivider, $canMoveOutlineElement, $insertBulletList, $blockNodes, $elementNodes, $isOutlineElementMovable, $loadDraft, $moveOutlineElement, $readDraft, $review, $setColumnsAppearance, $setDocumentColumns, $setDocumentLayout, $setDocumentHeader, $swapColumns, $setRegionAppearance, $setSectionColumns, editorNodes, proposalState, registerBlockIds } from "../../src/editor/adapter";
+import { dividerAppearanceState, CvDividerNode, layoutState, blockIdState, CvColumnNode, CvColumnsNode, CvHeaderNode, CvSectionNode } from "../../src/editor/nodes";
 import { legacyDraft } from "../fixtures/legacy";
 import { createMemoryWorkspaceStore } from "../../src/persistence/workspace-store";
 import { browserRepository, STORAGE_KEY, LEGACY_STORAGE_KEY, type Workspace } from "../../src/persistence/drafts";
@@ -438,4 +438,121 @@ test("declared primary order changes projection without changing visual content 
   expect(projection[0].id).toBe("heading-summary");
   expect(new Set(projection.map((block) => block.id)).size).toBe(textBlocks(createFixture().cv).length);
   expect(needsReview(textBlocks(result.cv), result.proposal)).toBe(false);
+});
+
+test("dividers keep their identity through movement, serialization and history", async () => {
+  const { editor, read } = setup();
+  const before = read();
+  editor.update(() => {
+    $blockNodes().find((node) => $getState(node, blockIdState) === "block-components")!.selectStart();
+    $addDivider();
+  }, { discrete: true, tag: HISTORY_PUSH_TAG });
+  const divider = allElements(read().cv.children).find((element) => element.type === "divider")!;
+  expect(divider.id).toBeTruthy();
+  expect(parseDraft(read())).toEqual(read());
+  expect(textBlocks(read().cv)).toEqual(textBlocks(before.cv));
+  expect(allElements(linearizeForAts(read().cv).children)).toContainEqual(divider);
+  await command(editor, UNDO_COMMAND);
+  expect(read()).toEqual(before);
+  await command(editor, REDO_COMMAND);
+  expect(allElements(read().cv.children)).toContainEqual(divider);
+  editor.update(() => {
+    expect($moveOutlineElement(divider.id, "block-designers", "inside")).toBe(false);
+    expect($moveOutlineElement(divider.id, textBlocks(before.cv)[0].id, "after")).toBe(true);
+  }, { discrete: true });
+  const saved = read();
+  editor.setEditorState(editor.parseEditorState(JSON.stringify(editor.getEditorState().toJSON())));
+  expect(read()).toEqual(saved);
+  editor.update(() => $loadDraft(saved), { discrete: true });
+  expect(read()).toEqual(saved);
+});
+
+test("divider appearance validates bounds, persists and shares document history", async () => {
+  const { editor, read } = setup();
+  editor.update($addDivider, { discrete: true, tag: HISTORY_PUSH_TAG });
+  const before = read();
+  editor.update(() => {
+    $setState($elementNodes().find((node) => node instanceof CvDividerNode)!, dividerAppearanceState, { color: "#12abef", opacity: 0, thickness: 200, ends: "rounded" });
+  }, { discrete: true, tag: HISTORY_PUSH_TAG });
+  const styled = read();
+  expect(parseDraft(styled)).toEqual(styled);
+  await command(editor, UNDO_COMMAND);
+  expect(read()).toEqual(before);
+  await command(editor, REDO_COMMAND);
+  expect(read()).toEqual(styled);
+  editor.setEditorState(editor.parseEditorState(JSON.stringify(editor.getEditorState().toJSON())));
+  expect(read()).toEqual(styled);
+  editor.update(() => $loadDraft(styled), { discrete: true });
+  expect(read()).toEqual(styled);
+  for (const appearance of [{ thickness: 0 }, { thickness: 201 }, { thickness: NaN }, { opacity: -1 }, { opacity: 101 }, { color: "red" }, { ends: "triangle" }]) {
+    const invalid = structuredClone(styled);
+    const divider = allElements(invalid.cv.children).find((element) => element.type === "divider")!;
+    Object.assign(divider, { appearance });
+    expect(() => parseDraft(invalid)).toThrow();
+  }
+});
+
+test("spacing boundaries share ownership, normalize list gaps, and round-trip through history", async () => {
+  const { $spacingControls, $setSpace } = await import("../../src/editor/spacing");
+  const { $selectElementRange, $selectedElements, $adjacentElements } = await import("../../src/editor/element-selection");
+  const { spacingState } = await import("../../src/editor/nodes");
+  const { editor, read } = setup();
+  let beforeId = "";
+  editor.update(() => {
+    const first = $blockNodes().find((node) => $getState(node, blockIdState) === "block-components")!;
+    const next = first.getNextSibling()!;
+    first.selectEnd();
+    const below = $spacingControls().find((control) => control.id === "below")!;
+    beforeId = below.keys[0];
+    $setSpace(below, 24);
+    $selectElementRange(next as typeof first, "block-components", true, false);
+    expect($selectedElements()).toHaveLength(2);
+    expect($adjacentElements($selectedElements())).toBe(true);
+    const between = $spacingControls().find((control) => control.id === "between")!;
+    expect(between.keys).toEqual([beforeId]);
+    $setSpace(between, 32);
+  }, { discrete: true, tag: HISTORY_PUSH_TAG });
+  expect(textBlocks(read().cv).find((node) => node.id === "block-designers")?.spacing?.before).toBe(32);
+  const saved = read();
+  editor.dispatchCommand(UNDO_COMMAND, undefined);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(textBlocks(read().cv).find((node) => node.id === "block-designers")?.spacing).toBeUndefined();
+  editor.update(() => $loadDraft(saved), { discrete: true });
+  expect(read()).toEqual(saved);
+  editor.update(() => {
+    const first = $blockNodes().find((node) => $getState(node, blockIdState) === "block-components")!;
+    const list = first.getParentOrThrow();
+    $selectElementRange(list, null, false, false);
+    $setSpace($spacingControls().find((control) => control.id === "items")!, 16);
+    expect($getState(list, spacingState).itemGap).toBe(16);
+    expect($getState(first.getNextSibling()!, spacingState).before).toBeUndefined();
+  }, { discrete: true });
+  const invalid = structuredClone(read());
+  invalid.cv.children[0].spacing = { before: -1 };
+  expect(() => parseDraft(invalid)).toThrow();
+});
+
+test("nested edge spacing resolves to its containing region and text styles keep gap overrides", async () => {
+  const { $spacingControls, $setSpace } = await import("../../src/editor/spacing");
+  const { $setTextStyle } = await import("../../src/editor/formatting");
+  const { spacingState } = await import("../../src/editor/nodes");
+  const { editor, read } = setup();
+  editor.update(() => {
+    $setDocumentLayout("page");
+    const title = $blockNodes()[0];
+    title.selectEnd();
+    const inset = $spacingControls().find((control) => control.id === "above")!;
+    expect(inset.kind).toBe("padding");
+    expect(inset.side).toBe("top");
+    $setSpace(inset, 40);
+    expect($getState(title, spacingState).before).toBeUndefined();
+    const subtitle = $blockNodes()[1];
+    subtitle.selectEnd();
+    $setSpace($spacingControls().find((control) => control.id === "above")!, 18);
+    $setTextStyle("h3");
+  }, { discrete: true });
+  expect(textBlocks(read().cv)[1].spacing?.before).toBe(18);
+  const columns = read().cv.children.find((node) => node.type === "columns");
+  expect(columns && "children" in columns && columns.children[0].appearance).toMatchObject({ padding: { top: 40 } });
+  expect(() => parseDraft(read())).not.toThrow();
 });

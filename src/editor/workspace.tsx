@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, CircleAlert, CloudCheck, FilePlus2, LoaderCircle, Maximize2, Minus, PanelLeft, PanelRight, Plus, Redo2, Undo2 } from "lucide-react";
+import { ArrowLeft, CircleAlert, CloudCheck, LoaderCircle, Maximize2, Minus, PanelLeft, PanelRight, Plus, Redo2, Undo2 } from "lucide-react";
 import ActiveElementFocus from "./active-element-focus";
-import { $activeElementId } from "./active-element-focus";
+import { $selectedElements } from "./element-selection";
 import ElementStyleToolbar from "./element-style-toolbar";
+import { SpacingProvider } from "./spacing-context";
+import SpacingOverlay from "./spacing-overlay";
 import ElementPanel from "./element-panel";
 import OutlinePanel, { type OutlineDropPreview } from "./outline-panel";
 import SidebarResizer from "./sidebar-resizer";
@@ -32,8 +34,9 @@ import { createFixture } from "@/domain/fixture";
 import { browserRepository, LEGACY_STORAGE_KEY, STORAGE_KEY } from "@/persistence/drafts";
 import type { PersistedWorkspace, WorkspaceState } from "@/persistence/workspace-store";
 import { IconButton, Tabs } from "@/ui/primitives";
+import { ElementTypeIcon } from "@/ui/element-type-icon";
 import { DocumentSparklesIcon } from "@/ui/icons";
-import { registerRegionBoundaries, $insertBulletList, $addSection, $addEntry, $loadDraft, $readDraft, $review, editorNodes, proposalState, registerBlockIds } from "./adapter";
+import { registerDividers, $addDivider, registerRegionBoundaries, $insertBulletList, $addSection, $addEntry, $loadDraft, $readDraft, $review, editorNodes, proposalState, registerBlockIds } from "./adapter";
 
 const A4_WIDTH = 794;
 const A4_HEIGHT = 1123;
@@ -164,8 +167,8 @@ function WorkspaceContent({ initial, contextLabel, backHref, documentKind }: { i
       editor.registerCommand(INSERT_ORDERED_LIST_COMMAND, () => { $insertBulletList("number"); return true; }, COMMAND_PRIORITY_HIGH),
       editor.registerCommand(REMOVE_LIST_COMMAND, () => { $removeSelectedList(); return true; }, COMMAND_PRIORITY_HIGH),
       editor.registerUpdateListener(({ editorState, prevEditorState }) => {
-        const next = editorState.read($activeElementId);
-        const before = prevEditorState.read($activeElementId);
+        const next = editorState.read(() => $selectedElements().map((node) => node.getKey()).join(","));
+        const before = prevEditorState.read(() => $selectedElements().map((node) => node.getKey()).join(","));
         if (next && next !== before) {
           setPropertyScope("selection");
           setLeftTab("outline");
@@ -174,6 +177,7 @@ function WorkspaceContent({ initial, contextLabel, backHref, documentKind }: { i
         }
       }),
       registerRegionBoundaries(editor),
+      registerDividers(editor),
       registerHistory(editor, history.current, 750, Date.now, undefined, 100),
       editor.registerCommand(CAN_UNDO_COMMAND, (value) => { setCanUndo(value); return false; }, COMMAND_PRIORITY_HIGH),
       editor.registerCommand(CAN_REDO_COMMAND, (value) => { setCanRedo(value); return false; }, COMMAND_PRIORITY_HIGH),
@@ -294,7 +298,7 @@ function WorkspaceContent({ initial, contextLabel, backHref, documentKind }: { i
   const saveStatusLabel = saveStatus === "saved" ? "Saved" : saveStatus === "saving" ? "Saving…" : saveStatus === "conflict" ? "Reload required" : "Changes not saved";
   const SaveStatusIcon = saveStatus === "saved" ? CloudCheck : saveStatus === "saving" ? LoaderCircle : CircleAlert;
 
-  return <main style={{ "--workspace-left-width": `min(${leftWidth}px, 50vw, calc(100vw - ${rightOpen ? `min(${rightWidth}px, 50vw)` : "44px"} - 240px))`, "--workspace-right-width": `min(${rightWidth}px, 50vw, calc(100vw - ${leftOpen ? `min(${leftWidth}px, 50vw)` : "44px"} - 240px))` } as CSSProperties} className={`workspace ${leftOpen ? "" : "left-collapsed"} ${rightOpen ? "" : "right-collapsed"}`}>
+  return <SpacingProvider><main style={{ "--workspace-left-width": `min(${leftWidth}px, 50vw, calc(100vw - ${rightOpen ? `min(${rightWidth}px, 50vw)` : "44px"} - 240px))`, "--workspace-right-width": `min(${rightWidth}px, 50vw, calc(100vw - ${leftOpen ? `min(${leftWidth}px, 50vw)` : "44px"} - 240px))` } as CSSProperties} className={`workspace ${leftOpen ? "" : "left-collapsed"} ${rightOpen ? "" : "right-collapsed"}`}>
     <header className="workspace-topbar">
       <div className="workspace-title">
         {backHref && <Link className="back-link" href={backHref}><ArrowLeft size={15} aria-hidden="true" />Applications</Link>}
@@ -344,6 +348,7 @@ function WorkspaceContent({ initial, contextLabel, backHref, documentKind }: { i
                   if (window.matchMedia("(max-width: 1050px)").matches) setRightOpen(false);
                 }} />} ErrorBoundary={LexicalErrorBoundary} />
                 <OutlineDropIndicator paperRef={paper} preview={outlineDropPreview} zoom={zoom} />
+                <SpacingOverlay paperRef={paper} zoom={zoom} />
                 <ColumnResizeHandles paperRef={paper} zoom={zoom} />
               </article>
             </div>
@@ -356,9 +361,9 @@ function WorkspaceContent({ initial, contextLabel, backHref, documentKind }: { i
           <button className="button-with-icon" onClick={fitPage}><Maximize2 size={14} aria-hidden="true" />Fit</button>
         </div>
         <div className="add-element-toolbar" role="toolbar" aria-label="Add element">
-          <span>Add</span>
-          <button className="button-with-icon" aria-label="Add section" onMouseDown={(event) => event.preventDefault()} onClick={() => editor.update($addSection, { tag: HISTORY_PUSH_TAG })}><Plus size={14} aria-hidden="true" />Section</button>
-          <button className="button-with-icon" aria-label="Add entry" onMouseDown={(event) => event.preventDefault()} onClick={() => editor.update($addEntry, { tag: HISTORY_PUSH_TAG })}><FilePlus2 size={14} aria-hidden="true" />Entry</button>
+          <button className="button-with-icon" aria-label="Add section" onMouseDown={(event) => event.preventDefault()} onClick={() => editor.update($addSection, { tag: HISTORY_PUSH_TAG })}><ElementTypeIcon type="cv-section" size={16} />Section</button>
+          <button className="button-with-icon" aria-label="Add entry" onMouseDown={(event) => event.preventDefault()} onClick={() => editor.update($addEntry, { tag: HISTORY_PUSH_TAG })}><ElementTypeIcon type="cv-entry" size={16} />Entry</button>
+          <button className="button-with-icon" aria-label="Add divider" onMouseDown={(event) => event.preventDefault()} onClick={() => editor.update($addDivider, { tag: HISTORY_PUSH_TAG })}><ElementTypeIcon type="cv-divider" size={16} />Divider</button>
         </div>
       </section>
 
@@ -397,5 +402,5 @@ function WorkspaceContent({ initial, contextLabel, backHref, documentKind }: { i
     <ActiveElementFocus />
     <ListPlugin />
     <LinkPlugin validateUrl={safeLink} />
-  </main>;
+  </main></SpacingProvider>;
 }

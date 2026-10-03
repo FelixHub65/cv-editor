@@ -10,12 +10,17 @@ import {
   documentAppearanceState,
 } from "./adapter";
 import {
-  layoutState, appearanceState, blockIdState, columnsAppearanceState, regionAppearanceState,
+  dividerAppearanceState, CvDividerNode, layoutState, appearanceState, blockIdState, columnsAppearanceState, regionAppearanceState,
   CvColumnNode, CvColumnsNode, CvHeaderNode, CvSectionNode,
 } from "./nodes";
 import { $setBlockAppearance } from "./formatting";
-import { regionPadding, FONT_FAMILIES, type ColumnsAppearance, type DocumentAppearance, type RegionAppearance } from "@/domain/cv";
+import { FONT_FAMILIES, type DividerAppearance, type ColumnsAppearance, type DocumentAppearance, type RegionAppearance } from "@/domain/cv";
 import { ElementTypeIcon, elementTypeLabels, isElementType } from "@/ui/element-type-icon";
+
+import SpacingPanel from "./spacing-panel";
+import { $selectedElements } from "./element-selection";
+import { ColorPicker } from "@/ui/color-picker";
+import { NumberField, SelectField } from "@/ui/property-fields";
 
 function contrastRatio(background: string, foreground: string) {
   function luminance(color: string) {
@@ -44,6 +49,8 @@ export default function ElementPanel({ clean, onCleanChange, scope, onScopeChang
       header: $getRoot().getChildren().some((child) => child instanceof CvHeaderNode),
       selected: node && type && isElementType(type) ? {
         type,
+        id,
+        dividerAppearance: node instanceof CvDividerNode ? $getState(node, dividerAppearanceState) : null,
         layout: $getState(node, layoutState),
         columnOptions: node instanceof CvColumnsNode ? node.getChildren().map((child, index) => ({ id: $getState(child, blockIdState), label: $getState(child, layoutState).label || `Column ${index + 1}` })) : [],
         primaryId: node instanceof CvColumnsNode ? $getState($primaryColumn(node), blockIdState) : "",
@@ -54,6 +61,7 @@ export default function ElementPanel({ clean, onCleanChange, scope, onScopeChang
         columnsAppearance: node instanceof CvColumnsNode ? $getState(node, columnsAppearanceState) : null,
         sectionColumns: node instanceof CvSectionNode && !(node.getParent() instanceof CvColumnNode) ? node.getChildren().some((child) => child instanceof CvColumnsNode) : null,
       } : null,
+      selectionCount: $selectedElements().length,
       text: $isRangeSelection($getSelection()),
     };
   });
@@ -77,6 +85,10 @@ export default function ElementPanel({ clean, onCleanChange, scope, onScopeChang
     selectedChange((node) => { if (node instanceof CvHeaderNode || node instanceof CvColumnNode) $setRegionAppearance(node, patch); });
   }
 
+  function dividerChange(patch: Partial<DividerAppearance>) {
+    selectedChange((node) => { if (node instanceof CvDividerNode) $setState(node, dividerAppearanceState, { ...$getState(node, dividerAppearanceState), ...patch }); });
+  }
+  const divider = selected?.dividerAppearance;
   const region = selected?.regionAppearance;
   const columns = selected?.columnsAppearance;
   const contrast = region ? contrastRatio(region.background ?? "#ffffff", region.color ?? "#202a31") : null;
@@ -90,13 +102,13 @@ export default function ElementPanel({ clean, onCleanChange, scope, onScopeChang
     {scope === "document" ? <>
       <section className="property-section"><h3>Typography</h3>
         <label className="property-control">Default font<select aria-label="Default font" value={doc.font ?? ""} onChange={(event) => documentChange({ font: event.target.value as DocumentAppearance["font"] || undefined })}><option value="">Template font</option>{FONT_FAMILIES.map((font) => <option key={font}>{font}</option>)}</select></label>
-        <label className="property-control">Base font size<select aria-label="Base font size" value={doc.size ?? 15} onChange={(event) => documentChange({ size: Number(event.target.value) })}>{[10, 12, 14, 15, 16, 18, 20].map((size) => <option key={size} value={size}>{size} px</option>)}</select></label>
+        <label className="property-control">Base font size<select aria-label="Base font size" value={doc.size ?? 15} onChange={(event) => documentChange({ size: Number(event.target.value) })}>{[10, 12, 14, 15, 16, 18, 20].map((size) => <option key={size} value={size}>{size}</option>)}</select></label>
         <label className="property-control">Default line spacing<select aria-label="Default line spacing" value={doc.lineHeight ?? 1.7} onChange={(event) => documentChange({ lineHeight: Number(event.target.value) })}>{[1, 1.15, 1.5, 1.7, 2].map((height) => <option key={height}>{height}</option>)}</select></label>
       </section>
       <section className="property-section"><h3>Page & spacing</h3>
         <p className="hint">A4 · Portrait</p>
-        <label className="property-control">Page margins<select aria-label="Page margins" disabled={snapshot?.mode === "page"} value={doc.margin ?? 64} onChange={(event) => documentChange({ margin: Number(event.target.value) })}>{[24, 32, 48, 64, 80, 96].map((margin) => <option key={margin} value={margin}>{margin} px</option>)}</select></label>
-        <label className="property-control">Section spacing<select aria-label="Section spacing" value={doc.sectionSpacing ?? 30} onChange={(event) => documentChange({ sectionSpacing: Number(event.target.value) })}>{[0, 8, 16, 24, 30, 40, 48].map((spacing) => <option key={spacing} value={spacing}>{spacing} px</option>)}</select></label>
+        <NumberField label="Page margins" value={doc.margin ?? 64} min={16} max={100} disabled={snapshot?.mode === "page"} onChange={(margin) => documentChange({ margin })} />
+        <NumberField label="Section spacing" value={doc.sectionSpacing ?? 30} min={0} max={80} onChange={(sectionSpacing) => documentChange({ sectionSpacing })} />
       </section>
       <section className="property-section"><h3>Layout</h3>
         <label className="property-control">Layout<select aria-label="Document columns" value={snapshot?.mode ?? "single"} onChange={(event) => editor.update(() => $setDocumentLayout(event.target.value as "single" | "inset" | "page"), { tag: HISTORY_PUSH_TAG })}><option value="single">Single column</option><option value="inset">Within margins</option><option value="page">Full-height columns</option></select></label>
@@ -107,20 +119,27 @@ export default function ElementPanel({ clean, onCleanChange, scope, onScopeChang
         <p className="hint">Removing a Header moves its content to the primary column. Single-column conversion places primary content first. Undo restores the layout.</p>
         <button onClick={() => editor.update(() => $setState($getRoot(), documentAppearanceState, {}), { tag: HISTORY_PUSH_TAG })}>Reset document defaults</button>
       </section>
-    </> : !selected && !snapshot?.text ? <div className="panel-empty"><p>Select an element on the page or in the outline.</p></div> : <>
-      {selected && <section className="property-section"><h3>Content</h3><p className="property-preview">{selected.text || "Empty element"}</p></section>}
+    </> : !selected && !snapshot?.text && !snapshot?.selectionCount ? <div className="panel-empty"><p>Select an element on the page or in the outline.</p></div> : <>
+      <SpacingPanel />
+      {selected && !divider && <section className="property-section"><h3>Content</h3><p className="property-preview">{selected.text || "Empty element"}</p></section>}
       {selected?.sectionColumns !== null && selected?.sectionColumns !== undefined && <section className="property-section"><h3>Layout</h3>
         <label className="property-control">Section columns<select aria-label="Section columns" value={selected.sectionColumns ? "2" : "1"} onChange={(event) => selectedChange((node) => { if (node instanceof CvSectionNode) $setSectionColumns(node, event.target.value === "2"); })}><option value="1">Single column</option><option value="2">Two columns</option></select></label>
         <p className="hint">The section heading stays full width.</p>
+      </section>}
+      {divider && <section className="property-section" key={selected?.id}><h3>Line style</h3>
+        <ColorPicker value={divider.color ?? "#c5cfd3"} onChange={(color) => dividerChange({ color })} opacity={divider.opacity ?? 100} onOpacityChange={(opacity) => dividerChange({ opacity })} />
+        <div className="inspector-field-row">
+          <NumberField updateOnChange label="Thickness" value={divider.thickness ?? 1} min={1} max={200} onChange={(thickness) => dividerChange({ thickness })} />
+          <SelectField label="Ends" value={divider.ends ?? "square"} options={[{ value: "square", label: "Square" }, { value: "rounded", label: "Rounded" }]} onChange={(ends) => dividerChange({ ends })} />
+        </div>
       </section>}
       {columns && <section className="property-section"><h3>Column layout</h3>
         <label className="property-control">Primary content<select aria-label="Primary content" value={selected?.primaryId} onChange={(event) => selectedChange((node) => $setState(node, layoutState, { ...$getState(node, layoutState), primaryColumnId: event.target.value }))}>{selected?.columnOptions.map((column) => <option key={column.id} value={column.id}>{column.label}</option>)}</select></label>
         <button onClick={() => selectedChange((node) => { if (node instanceof CvColumnsNode) $swapColumns(node); })}>Swap column positions</button>
         <p className="hint">Primary content comes first in the ATS projection, regardless of its position.</p>
         <label className="property-range"><span>Column width <strong>{columns.ratio ?? 50} / {100 - (columns.ratio ?? 50)}</strong></span><input aria-label="Column width" type="range" min="30" max="70" value={columns.ratio ?? 50} onChange={(event) => columnsChange({ ratio: Number(event.target.value) })} /></label>
-        <label className="property-control">Left column (%)<input aria-label="Left column percentage" type="number" min={30} max={70} value={columns.ratio ?? 50} onChange={(event) => { if (event.target.value && event.target.validity.valid) columnsChange({ ratio: Number(event.target.value) }); }} /></label>
-        <label className="property-control">Gap<select aria-label="Column gap" value={columns.gap ?? 24} onChange={(event) => columnsChange({ gap: Number(event.target.value) })}>{[0, 8, 16, 24, 32, 40, 48].map((gap) => <option key={gap} value={gap}>{gap} px</option>)}</select></label>
-        <label className="property-control">Divider<select aria-label="Column divider" value={columns.dividerWidth ?? 1} onChange={(event) => columnsChange({ dividerWidth: Number(event.target.value) })}><option value="0">None</option><option value="1">1 px</option><option value="2">2 px</option><option value="3">3 px</option></select></label>
+        <NumberField label="Left column percentage" value={columns.ratio ?? 50} min={30} max={70} onChange={(ratio) => columnsChange({ ratio })} />
+        <label className="property-control">Divider<select aria-label="Column divider" value={columns.dividerWidth ?? 1} onChange={(event) => columnsChange({ dividerWidth: Number(event.target.value) })}><option value="0">None</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
         <label className="property-control">Divider color<input aria-label="Divider color" type="color" value={columns.dividerColor ?? "#c5cfd3"} disabled={(columns.dividerWidth ?? 1) === 0} onChange={(event) => columnsChange({ dividerColor: event.target.value })} /></label>
         <p className="hint">Drag the arrow above the divider or use its arrow keys.</p>
       </section>}
@@ -128,18 +147,15 @@ export default function ElementPanel({ clean, onCleanChange, scope, onScopeChang
         <label className="property-control">Background<input aria-label="Region background color" type="color" value={region.background ?? "#ffffff"} onChange={(event) => regionChange({ background: event.target.value })} /></label>
         <label className="property-control">Default text<input aria-label="Region text color" type="color" value={region.color ?? "#202a31"} onChange={(event) => regionChange({ color: event.target.value })} /></label>
         {selected?.type === "cv-column" && <label className="property-control">Label<input aria-label="Column label" maxLength={60} value={selected.layout.label ?? ""} placeholder="Column" onChange={(event) => selectedChange((node) => $setState(node, layoutState, { ...$getState(node, layoutState), label: event.target.value }))} /></label>}
-        <label className="property-control">All padding<select aria-label="Region padding" value={Object.values(regionPadding(region.padding)).every((value) => value === regionPadding(region.padding).top) ? regionPadding(region.padding).top : "custom"} onChange={(event) => { const value = Number(event.target.value); regionChange({ padding: { top: value, right: value, bottom: value, left: value } }); }}><option value="custom" disabled>Custom</option>{[0, 8, 12, 16, 24, 32, 40, 48, 64, 80].map((padding) => <option key={padding} value={padding}>{padding} px</option>)}</select></label>
-        <div className="region-padding-grid">{(["top", "right", "bottom", "left"] as const).map((side) => <label key={side}>{side}<input type="number" aria-label={`Padding ${side}`} min={0} max={80} value={regionPadding(region.padding)[side]} onChange={(event) => { if (event.target.value !== "" && event.target.validity.valid) regionChange({ padding: { ...regionPadding(region.padding), [side]: Number(event.target.value) } }); }} /></label>)}</div>
         <p className="hint">Padding moves content inside the background.</p>
         {contrast !== null && contrast < 4.5 && <p className="property-warning" role="status">Low text contrast ({contrast.toFixed(1)}:1). Aim for at least 4.5:1.</p>}
         <button onClick={() => selectedChange((node) => { if (node instanceof CvHeaderNode || node instanceof CvColumnNode) $setState(node, regionAppearanceState, {}); })}>Reset region style</button>
         <p className="hint">Local text color takes precedence over this default.</p>
       </section>}
       {snapshot?.text ? <section className="property-section"><h3>Text settings</h3>
-        <label className="property-control">Space after<select aria-label="Space after" value={selected?.blockAppearance.spaceAfter ?? ""} onChange={(event) => editor.update(() => $setBlockAppearance({ spaceAfter: event.target.value ? Number(event.target.value) : undefined }), { tag: HISTORY_PUSH_TAG })}><option value="">Template spacing</option>{[0, 4, 8, 12, 16, 24, 32].map((spacing) => <option key={spacing} value={spacing}>{spacing} px</option>)}</select></label>
         <button onMouseDown={(event) => event.preventDefault()} onClick={() => editor.update(() => { const selection = $getSelection(); if ($isRangeSelection(selection)) $patchStyleText(selection, { "font-family": null, "font-size": null, color: null }); $setBlockAppearance({ lineHeight: undefined, spaceAfter: undefined }); }, { tag: HISTORY_PUSH_TAG })}>Reset to inherited style</button>
         <p className="hint">Use the top toolbar for text styles, formatting, links and alignment.</p>
-      </section> : !columns && !region && selected?.sectionColumns === null && <section className="property-section"><p className="hint">Select text inside this group to format it.</p></section>}
+      </section> : !divider && !columns && !region && selected?.sectionColumns === null && <section className="property-section"><p className="hint">Select text inside this group to format it.</p></section>}
     </>}
     <section className="property-section"><h3>View</h3><label className="property-checkbox"><input aria-label="Clean view" type="checkbox" checked={clean} onChange={(event) => onCleanChange(event.target.checked)} /> Hide suggestion highlights</label></section>
   </div>;

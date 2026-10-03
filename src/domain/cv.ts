@@ -11,15 +11,19 @@ export function regionPadding(value: RegionAppearance["padding"]): RegionPadding
 }
 export type ColumnsAppearance = { ratio?: number; gap?: number; dividerWidth?: number; dividerColor?: string };
 export type Span = { text: string; bold: boolean; italic: boolean; underline?: boolean; strikethrough?: boolean; link?: string } & TextAppearance;
-export type Block = { id: string; spans: Span[]; appearance?: BlockAppearance } & (
+export type ElementSpacing = { before?: number; itemGap?: number };
+export const isElementSpacing = (value: unknown): value is ElementSpacing => !!value && typeof value === "object" && !Array.isArray(value) && Object.entries(value).every(([key, v]) => ["before", "itemGap"].includes(key) && typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 80);
+export type Block = { id: string; spacing?: ElementSpacing; spans: Span[]; appearance?: BlockAppearance } & (
   { type: "paragraph" | "bullet" } | { type: "heading"; level: 1 | 2 | 3 }
 );
-export type ContentGroup = { id: string; type: "section" | "entry" | "list"; children: DocumentElement[]; listType?: "number"; listStart?: number };
-export type HeaderGroup = { id: string; type: "header"; children: DocumentElement[]; appearance?: RegionAppearance };
-export type ColumnsGroup = { id: string; mode?: "inset" | "page"; primaryColumnId?: string; type: "columns"; children: ColumnGroup[]; appearance?: ColumnsAppearance };
-export type ColumnGroup = { id: string; label?: string; type: "column"; children: DocumentElement[]; appearance?: RegionAppearance };
+export type ContentGroup = { id: string; spacing?: ElementSpacing; type: "section" | "entry" | "list"; children: DocumentElement[]; listType?: "number"; listStart?: number };
+export type HeaderGroup = { id: string; spacing?: ElementSpacing; type: "header"; children: DocumentElement[]; appearance?: RegionAppearance };
+export type ColumnsGroup = { id: string; spacing?: ElementSpacing; mode?: "inset" | "page"; primaryColumnId?: string; type: "columns"; children: ColumnGroup[]; appearance?: ColumnsAppearance };
+export type ColumnGroup = { id: string; spacing?: ElementSpacing; label?: string; type: "column"; children: DocumentElement[]; appearance?: RegionAppearance };
 export type Group = ContentGroup | HeaderGroup | ColumnsGroup | ColumnGroup;
-export type DocumentElement = Block | Group;
+export type DividerAppearance = { color?: string; opacity?: number; thickness?: number; ends?: "square" | "rounded" };
+export type Divider = { id: string; spacing?: ElementSpacing; type: "divider"; appearance?: DividerAppearance };
+export type DocumentElement = Block | Group | Divider;
 export type CV = { id: string; children: DocumentElement[]; appearance?: DocumentAppearance };
 export type Proposal = {
   id: string; targetId: string; expected: Block; replacement: Span[];
@@ -66,6 +70,7 @@ export const isDocumentAppearance = (v: unknown): v is DocumentAppearance => rec
   (v.font === undefined || FONT_FAMILIES.includes(v.font as FontFamily)) && optionalNumber(v.size, 8, 72) && optionalNumber(v.lineHeight, 1, 3) && optionalNumber(v.margin, 16, 100) && optionalNumber(v.sectionSpacing, 0, 80);
 const optionalColor = (v: unknown) => v === undefined || (typeof v === "string" && /^#[\da-f]{6}$/i.test(v));
 export const isRegionAppearance = (v: unknown): v is RegionAppearance => record(v) && optionalColor(v.background) && optionalColor(v.color) && (typeof v.padding === "object" ? record(v.padding) && ["top", "right", "bottom", "left"].every((side) => typeof (v.padding as Record<string, unknown>)[side] === "number" && optionalNumber((v.padding as Record<string, unknown>)[side], 0, 80)) : optionalNumber(v.padding, 0, 80));
+export const isDividerAppearance = (v: unknown): v is DividerAppearance => record(v) && optionalColor(v.color) && optionalNumber(v.opacity, 0, 100) && optionalNumber(v.thickness, 1, 200) && (v.ends === undefined || v.ends === "square" || v.ends === "rounded");
 export const isColumnsAppearance = (v: unknown): v is ColumnsAppearance => record(v) && optionalNumber(v.ratio, 30, 70) && optionalNumber(v.gap, 0, 80) && optionalNumber(v.dividerWidth, 0, 8) && optionalColor(v.dividerColor);
 export const isBlockAppearance = (v: unknown): v is BlockAppearance => record(v) &&
   (v.alignment === undefined || ["left", "center", "right", "justify"].includes(v.alignment as string)) &&
@@ -87,14 +92,16 @@ type ValidationParent = "document" | Group["type"];
 function validElements(value: unknown, parent: ValidationParent, depth = 0, columnOwner?: "document" | "section"): value is DocumentElement[] {
   if (!Array.isArray(value) || depth > 8) return false;
   return value.every((element) => {
+    if (!record(element) || (element.spacing !== undefined && !isElementSpacing(element.spacing))) return false;
     if (isBlock(element)) return parent === "list" ? element.type === "bullet" : element.type !== "bullet";
     if (!record(element) || !nonempty(element.id)) return false;
     const type = element.type;
+    if (type === "divider") return parent !== "list" && (element.appearance === undefined || isDividerAppearance(element.appearance));
     if (type === "list") return parent !== "list" && (element.listType === undefined || element.listType === "number") && (element.listStart === undefined || (Number.isInteger(element.listStart) && optionalNumber(element.listStart, 1, 10000))) && validElements(element.children, type, depth + 1);
     if (type === "header") return parent === "document" && (element.appearance === undefined || isRegionAppearance(element.appearance)) && validElements(element.children, type, depth + 1);
     if (type === "columns") return (element.mode === undefined || element.mode === "inset" || (element.mode === "page" && parent === "document")) && (element.primaryColumnId === undefined || (Array.isArray(element.children) && element.children.some((column) => record(column) && column.id === element.primaryColumnId))) && (parent === "document" || parent === "section") && (element.appearance === undefined || isColumnsAppearance(element.appearance)) &&
       Array.isArray(element.children) && element.children.length === 2 && element.children.every((column) => record(column) && nonempty(column.id) && column.type === "column" && (column.label === undefined || (typeof column.label === "string" && column.label.length <= 60)) &&
-        (column.appearance === undefined || isRegionAppearance(column.appearance)) && validElements(column.children, "column", depth + 1, parent));
+        (column.spacing === undefined || isElementSpacing(column.spacing)) && (column.appearance === undefined || isRegionAppearance(column.appearance)) && validElements(column.children, "column", depth + 1, parent));
     if (type === "column") return false;
     if (type === "section") return (parent === "document" || (parent === "column" && columnOwner === "document")) && validElements(element.children, type, depth + 1);
     if (type === "entry") return (parent === "section" || (parent === "column" && columnOwner === "section")) && validElements(element.children, type, depth + 1);
@@ -110,6 +117,7 @@ export function linearizeForAts(cv: CV): CV {
       if (element.type === "header" || element.type === "column") return flatten(element.children);
       if (element.type === "columns") return [...element.children].sort((a, b) => Number(b.id === element.primaryColumnId) - Number(a.id === element.primaryColumnId)).flatMap((column) => flatten(column.children));
       if ("children" in element) return [{ ...element, children: flatten(element.children) }];
+      if (element.type === "divider") return [{ ...element }];
       return [{ ...element, spans: element.spans.map((span) => ({ ...span })) }];
     });
   }

@@ -33,9 +33,12 @@ export function $activeElementId(): string | null {
 
 export default function ActiveElementFocus() {
   const state = useLiveEditorState();
-  const id = state?.read($activeElementId);
-  if (!id) return null;
+  const ids = state?.read(() => {
+    const selection = $getSelection();
+    return $isNodeSelection(selection) ? selection.getNodes().map((node) => $getState(node, blockIdState)).filter(Boolean) : [$activeElementId()].filter((id): id is string => !!id);
+  }) ?? [];
+  if (!ids.length) return null;
   // A scoped stylesheet decorates Lexical-rendered elements without mutating
   // their DOM. CSS outline adds no size and follows reflow/scroll automatically.
-  return <style>{`.cv-input [data-block-id="${CSS.escape(id)}"] { outline: 1px solid color-mix(in srgb, var(--color-app-focus) 40%, transparent); outline-offset: 2px; border-radius: 2px; }`}</style>;
+  return <style>{`${ids.map((id) => `.cv-input [data-block-id="${CSS.escape(id)}"]`).join(",")} { outline: 1px solid color-mix(in srgb, var(--color-app-focus) 40%, transparent); outline-offset: 2px; border-radius: 2px; }`}</style>;
 }

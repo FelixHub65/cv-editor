@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
 import { ChevronRight, GripVertical } from "lucide-react";
 import { Tooltip } from "@/ui/tooltip";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
@@ -11,6 +11,7 @@ import {
 } from "lexical";
 import { $isHeadingNode } from "@lexical/rich-text";
 import { $isListItemNode, $isListNode } from "@lexical/list";
+import { $selectedElements, $selectElementRange } from "./element-selection";
 import { $activeElementId } from "./active-element-focus";
 import {
   $canMoveOutlineElement, $elementNodes, $isOutlineElementMovable, $moveOutlineElement,
@@ -70,12 +71,14 @@ export default function OutlinePanel({ onDocument, onDropPreview }: { onDocument
   const [keyboardMoveId, setKeyboardMoveId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{ id: string; position: OutlineDropPosition } | null>(null);
   const [announcement, setAnnouncement] = useState("");
+  const anchorId = useRef<string | null>(null);
   const panel = useRef<HTMLDivElement | null>(null);
   const state = useLiveEditorState();
   const snapshot = state?.read(() => ({
     activeId: $activeElementId(),
+    selectedIds: $selectedElements().map((node) => $getState(node, blockIdState)),
     items: $getRoot().getChildren().filter($isElementNode).map(readItem),
-  })) ?? { activeId: null, items: [] };
+  })) ?? { activeId: null, selectedIds: [], items: [] };
   const activeAncestorIds = snapshot.activeId ? ancestorIds(snapshot.items, snapshot.activeId) ?? [] : [];
   const activeAncestorKey = JSON.stringify(activeAncestorIds);
 
@@ -108,18 +111,20 @@ export default function OutlinePanel({ onDocument, onDropPreview }: { onDocument
     onDropPreview(next ? { targetId: next.id, position: next.position } : null);
   }
 
-  function select(item: OutlineItem) {
+  function select(item: OutlineItem, event?: MouseEvent) {
     editor.update(() => {
       const node = $elementNodes().find((candidate) => $getState(candidate, blockIdState) === item.id);
       if (!node) return;
-      if ($isHeadingNode(node) || $isParagraphNode(node) || $isListItemNode(node)) node.selectEnd();
+      if (event?.shiftKey || event?.metaKey || event?.ctrlKey) $selectElementRange(node, anchorId.current, event.shiftKey, event.metaKey || event.ctrlKey);
+      else if ($isHeadingNode(node) || $isParagraphNode(node) || $isListItemNode(node)) node.selectEnd();
       else {
         const selection = $createNodeSelection();
         selection.add(node.getKey());
         $setSelection(selection);
       }
     });
-    editor.focus();
+    if (!event?.shiftKey) anchorId.current = item.id;
+    if (!(event?.shiftKey || event?.metaKey || event?.ctrlKey)) editor.focus();
     requestAnimationFrame(() => editor.getElementByKey(item.key)?.scrollIntoView({ block: "center", behavior: "smooth" }));
   }
 
@@ -209,7 +214,7 @@ export default function OutlinePanel({ onDocument, onDropPreview }: { onDocument
       const isCollapsed = collapsed.has(item.id);
       return <li key={item.id}>
         <div
-          className={`outline-row ${snapshot.activeId === item.id ? "active" : ""} ${dropTarget?.id === item.id ? `drop-${dropTarget.position}` : ""}`}
+          className={`outline-row ${snapshot.selectedIds.includes(item.id) ? "active" : ""} ${dropTarget?.id === item.id ? `drop-${dropTarget.position}` : ""}`}
           data-outline-row={item.id}
           style={{ paddingLeft: `${8 + depth * 14}px` }}
           onDragOver={(event) => {
@@ -231,11 +236,11 @@ export default function OutlinePanel({ onDocument, onDropPreview }: { onDocument
           }}
         >
           {hasChildren ? <button tabIndex={-1} className="outline-disclosure" aria-expanded={!isCollapsed} aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${item.label}`} onClick={() => toggle(item.id)}><ChevronRight className={isCollapsed ? undefined : "expanded"} size={13} aria-hidden="true" /></button> : <span className="outline-spacer" />}
-          <button className="outline-select outline-keyboard-target" data-outline-id={item.id} aria-pressed={snapshot.activeId === item.id} onFocus={() => {
+          <button className="outline-select outline-keyboard-target" title="Shift-click selects a sibling range; Command/Ctrl-click toggles elements" data-outline-id={item.id} aria-pressed={snapshot.selectedIds.includes(item.id)} onFocus={() => {
             if (!keyboardMoveId) return;
             const position = keyboardDrop(item.id);
             previewDrop(position ? { id: item.id, position } : null);
-          }} onKeyDown={(event) => navigate(event, { id: item.id, parentId, hasChildren, isCollapsed })} onClick={() => select(item)}>
+          }} onKeyDown={(event) => navigate(event, { id: item.id, parentId, hasChildren, isCollapsed })} onClick={(event) => select(item, event)}>
             <Tooltip content={elementTypeLabels[item.type]}><span className="outline-type"><ElementTypeIcon type={item.type} size={14} strokeWidth={item.type === "cv-bullet" ? 3 : 1.8} /></span></Tooltip><span>{item.label}</span>
           </button>
           {item.movable ? <button
@@ -243,7 +248,7 @@ export default function OutlinePanel({ onDocument, onDropPreview }: { onDocument
             aria-label={`Move ${item.label} — press Space for keyboard move`}
             aria-pressed={keyboardMoveId === item.id}
             draggable
-            onClick={() => select(item)}
+            onClick={(event) => select(item, event)}
             onKeyDown={(event) => {
               if (event.key !== " " && event.key !== "Enter") return;
               event.preventDefault();

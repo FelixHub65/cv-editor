@@ -1,8 +1,9 @@
-import { Columns2, Dot, FileText, Heading, List, PanelLeft, PanelTop, RectangleEllipsis, SquareText, Type, type LucideProps } from "lucide-react";
+import { Minus, Columns2, Dot, FileText, Heading, List, PanelLeft, PanelTop, RectangleEllipsis, SquareText, Type, type LucideProps } from "lucide-react";
 
-export type ElementType = "document" | "cv-header" | "cv-columns" | "cv-column" | "cv-section" | "cv-entry" | "cv-heading" | "cv-paragraph" | "cv-list" | "cv-bullet";
+export type ElementType = "cv-divider" | "document" | "cv-header" | "cv-columns" | "cv-column" | "cv-section" | "cv-entry" | "cv-heading" | "cv-paragraph" | "cv-list" | "cv-bullet";
 
 export const elementTypeLabels: Record<ElementType, string> = {
+  "cv-divider": "Divider",
   document: "Document",
   "cv-header": "Header",
   "cv-columns": "Columns",
@@ -16,6 +17,7 @@ export const elementTypeLabels: Record<ElementType, string> = {
 };
 
 const elementTypeIcons = {
+  "cv-divider": Minus,
   document: FileText,
   "cv-header": PanelTop,
   "cv-columns": Columns2,
